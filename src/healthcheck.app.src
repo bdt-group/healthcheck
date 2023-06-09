@@ -1,0 +1,22 @@
+{application, healthcheck,
+ [{description, "An OTP library"},
+  {vsn, "0.1.0"},
+  {registered, []},
+  {applications,
+   [kernel,
+    stdlib,
+    conf,
+    yval,
+    inets,
+    ranch,
+    cowlib,
+    cowboy,
+    meter
+   ]},
+  {env,[]},
+  {mod, {healthcheck, []}},
+  {modules, []},
+
+  {licenses, ["Apache 2.0"]},
+  {links, []}
+ ]}.
