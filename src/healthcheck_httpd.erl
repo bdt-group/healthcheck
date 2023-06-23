@@ -11,6 +11,7 @@
                      port := inet:port_number()}.
 -type http_method() :: binary().
 
+-define(VERSION_FILE, "CALVER").
 
 %%%===================================================================
 %%% public API
@@ -75,6 +76,29 @@ init(Req, Opts) ->
 %%%===================================================================
 %%% private
 %%%===================================================================
+
+read_calver(Path) ->
+    case file:read_file(Path) of
+            {ok, Data} -> lists:nth(1, binary:split(Data, [<<"\n">>], [trim_all]));
+            {error, _} -> <<"file error">>
+    end.
+
+find_calver(Path) ->
+    Data = read_calver(Path),
+    case re:run(binary_to_list(Data),
+                <<"(\\d{4}).(\\d{2}).(\\d{2}).(\\S{0,10}|$)">>,
+                [{capture, all_but_first, list}]) of
+        {match, [Year, Mounth, Day, Description]} ->
+                Year ++ "." ++ Mounth ++ "." ++ Day ++ "." ++ Description;
+        nomatch -> "undefined"
+    end.
+
+get_version_file(Filename) ->
+    case file:get_cwd() of
+        {ok, CurrentDirectory} ->  filename:join(CurrentDirectory, Filename);
+        {error, _} -> "undefined"
+    end.
+
 -spec routes() -> [{string(), module(), term()}].
 routes() ->
     [{"/healthcheck", ?MODULE, []} | meter:cowboy_routes()].
@@ -87,28 +111,29 @@ format_ip(IP6) ->
 
 -spec handle(http_method(), cowboy_req:req()) -> cowboy_req:req().
 handle(<<"GET">>, Req) ->
+    Headers = #{<<"content-type">> => <<"text/plain">>,
+                <<"version">> => list_to_binary(find_calver(get_version_file(?VERSION_FILE)))},
     case cowboy_req:has_body(Req) of
         true ->
-            json_response({error, body_present}, Req);
+            json_response({error, body_present, Headers}, Req);
         false ->
             State = healthcheck:get_state(),
-            json_response({ok, State}, Req)
+            json_response({ok, State, Headers}, Req)
     end;
 handle(_, Req) ->
     json_response({error, notfound}, Req).
 
 -spec json_response(_, cowboy_req:req()) -> cowboy_req:req().
-json_response({ok, {204, empty}}, Req) ->
-    cowboy_req:reply(204, Req);
-json_response({ok, {Code, Content}}, Req) when is_binary(Content) ->
-    cowboy_req:reply(Code, #{<<"content-type">> => <<"text/plain">>},
-                     Content, Req);
-json_response({ok, Other}, Req) ->
+json_response({ok, {Code, Content}, Headers}, Req) when is_binary(Content) ->
+    cowboy_req:reply(Code, Headers, Content, Req);
+json_response({ok, Other, Headers}, Req) ->
     ?LOG_WARNING("Unable to render current state: ~p", [Other]),
-    cowboy_req:reply(500, #{<<"content_type">> => <<"text/plain">>},
+    cowboy_req:reply(500, Headers,
                      <<"Server error: unable to render current state, check logs!">>, Req);
-json_response({error, body_present}, Req) ->
-    cowboy_req:reply(400, #{<<"content-type">> => <<"text/plain">>},
+json_response({error, body_present, Headers}, Req) ->
+    cowboy_req:reply(400, Headers,
                      <<"Unexpected body">>, Req);
 json_response({error, notfound}, Req) ->
-    cowboy_req:reply(404, Req).
+    cowboy_req:reply(404, Req);
+json_response({error, internal}, Req) ->
+    cowboy_req:reply(520, Req).
