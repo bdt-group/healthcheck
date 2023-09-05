@@ -11,7 +11,7 @@
                      port := inet:port_number()}.
 -type http_method() :: binary().
 
--define(VERSION_FILE, "CALVER").
+-define(VERSION_FILE, "SEMVER").
 
 %%%===================================================================
 %%% public API
@@ -77,21 +77,42 @@ init(Req, Opts) ->
 %%% private
 %%%===================================================================
 
-read_calver(Path) ->
+read_semver_file(Path, Number) ->
     case file:read_file(Path) of
-            {ok, Data} -> lists:nth(1, binary:split(Data, [<<"\n">>], [trim_all]));
+            {ok, Data} -> lists:nth(Number, binary:split(Data, [<<"\n">>], [global]));
             {error, _} -> <<"file error">>
     end.
 
-find_calver(Path) ->
-    Data = read_calver(Path),
+find_version_number(Path) ->
+    Data = read_semver_file(Path, 1),
     case re:run(binary_to_list(Data),
-                <<"(\\d{4}).(\\d{2}).(\\d{2}).(\\S{0,10}|$)">>,
+                <<"(\\d{1,}).(\\d{1,}).(\\d{1,})-(\\S{0,}|$)">>,
                 [{capture, all_but_first, list}]) of
-        {match, [Year, Mounth, Day, Description]} ->
-                Year ++ "." ++ Mounth ++ "." ++ Day ++ "." ++ Description;
+        {match, [Major, Minor, Patch, Label]} ->
+                Major ++ "." ++ Minor ++ "." ++ Patch ++ "-" ++ Label;
         nomatch -> "undefined"
     end.
+
+find_version_datetime(Path) ->
+    Data = read_semver_file(Path, 2),
+    case re:run(binary_to_list(Data),
+                <<"(\\d{1,2})/(\\d{1,2}).(\\d{2,4}) (\\d{2}):(\\d{2}):(\\d{2})">>,
+                [{capture, all_but_first, list}]) of
+        {match, [Day, Month, Year, Hours, Minutes, Seconds]} ->
+                Day ++ "/" ++ Month ++ "/" ++ Year ++ " " ++ Hours ++ ":" Minutes ++ ":" Seconds;
+        nomatch -> "undefined"
+    end.
+
+
+find_service_name(Path) ->
+    Data = read_semver_file(Path, 3),
+    case re:run(binary_to_list(Data),
+                <<"(\\S{0,}|$)">>,
+                [{capture, all_but_first, list}]) of
+        {match, [ServiceName]} -> ServiceName;
+        nomatch -> "undefined"
+    end.
+
 
 get_version_file(Filename) ->
     case file:get_cwd() of
@@ -112,7 +133,9 @@ format_ip(IP6) ->
 -spec handle(http_method(), cowboy_req:req()) -> cowboy_req:req().
 handle(<<"GET">>, Req) ->
     Headers = #{<<"content-type">> => <<"text/plain">>,
-                <<"version">> => list_to_binary(find_calver(get_version_file(?VERSION_FILE)))},
+                <<"version_number">> => list_to_binary(find_version_number(get_version_file(?VERSION_FILE)))},
+                <<"version_datetime">> => list_to_binary(find_version_datetime(get_version_file(?VERSION_FILE)))},
+                <<"service_name">> => list_to_binary(find_service_name(get_version_file(?VERSION_FILE)))},
     case cowboy_req:has_body(Req) of
         true ->
             json_response({error, body_present, Headers}, Req);
