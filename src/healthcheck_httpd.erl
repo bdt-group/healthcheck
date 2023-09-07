@@ -77,42 +77,18 @@ init(Req, Opts) ->
 %%% private
 %%%===================================================================
 
-read_semver_file(Path, Number) ->
+read_semver_file(Path) ->
     case file:read_file(Path) of
-            {ok, Data} -> lists:nth(Number, binary:split(Data, [<<"\n">>], [global]));
-            {error, _} -> <<"file error">>
+        {ok, Data} -> Data;
+        {error, _} -> <<"file error">>
     end.
 
-find_version_number(Path) ->
-    Data = read_semver_file(Path, 1),
-    case re:run(binary_to_list(Data),
-                <<"(\\d{1,}).(\\d{1,}).(\\d{1,})-(\\S{0,}|$)">>,
-                [{capture, all_but_first, list}]) of
-        {match, [Major, Minor, Patch, Label]} ->
-                Major ++ "." ++ Minor ++ "." ++ Patch ++ "-" ++ Label;
-        nomatch -> "undefined"
+get_records(Path) ->
+    Data = binary:split(read_semver_file(Path), [<<"\n">>], [global, trim_all]),
+    case Data of
+        [VersionNumber, VersionDatetime, ServiceName] -> Data;
+        _ -> [<<"undefined">>, <<"undefined">>, <<"undefined">>]
     end.
-
-find_version_datetime(Path) ->
-    Data = read_semver_file(Path, 2),
-    case re:run(binary_to_list(Data),
-                <<"(\\d{1,2})/(\\d{1,2}).(\\d{2,4}) (\\d{2}):(\\d{2}):(\\d{2})">>,
-                [{capture, all_but_first, list}]) of
-        {match, [Day, Month, Year, Hours, Minutes, Seconds]} ->
-                Day ++ "/" ++ Month ++ "/" ++ Year ++ " " ++ Hours ++ ":" Minutes ++ ":" Seconds;
-        nomatch -> "undefined"
-    end.
-
-
-find_service_name(Path) ->
-    Data = read_semver_file(Path, 3),
-    case re:run(binary_to_list(Data),
-                <<"(\\S{0,}|$)">>,
-                [{capture, all_but_first, list}]) of
-        {match, [ServiceName]} -> ServiceName;
-        nomatch -> "undefined"
-    end.
-
 
 get_version_file(Filename) ->
     case file:get_cwd() of
@@ -132,10 +108,11 @@ format_ip(IP6) ->
 
 -spec handle(http_method(), cowboy_req:req()) -> cowboy_req:req().
 handle(<<"GET">>, Req) ->
+    [VersionNumber, VersionDatetime, ServiceName] = get_records(get_version_file(?VERSION_FILE)),
     Headers = #{<<"content-type">> => <<"text/plain">>,
-                <<"version_number">> => list_to_binary(find_version_number(get_version_file(?VERSION_FILE)))},
-                <<"version_datetime">> => list_to_binary(find_version_datetime(get_version_file(?VERSION_FILE)))},
-                <<"service_name">> => list_to_binary(find_service_name(get_version_file(?VERSION_FILE)))},
+                <<"version_number">> => VersionNumber,
+                <<"version_datetime">> => VersionDatetime,
+                <<"service_name">> => ServiceName},
     case cowboy_req:has_body(Req) of
         true ->
             json_response({error, body_present, Headers}, Req);
