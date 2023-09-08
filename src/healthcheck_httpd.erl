@@ -11,7 +11,7 @@
                      port := inet:port_number()}.
 -type http_method() :: binary().
 
--define(VERSION_FILE, "CALVER").
+-define(VERSION_FILE, "SEMVER").
 
 %%%===================================================================
 %%% public API
@@ -77,20 +77,17 @@ init(Req, Opts) ->
 %%% private
 %%%===================================================================
 
-read_calver(Path) ->
+read_semver_file(Path) ->
     case file:read_file(Path) of
-            {ok, Data} -> lists:nth(1, binary:split(Data, [<<"\n">>], [trim_all]));
-            {error, _} -> <<"file error">>
+        {ok, Data} -> Data;
+        {error, _} -> <<"file error">>
     end.
 
-find_calver(Path) ->
-    Data = read_calver(Path),
-    case re:run(binary_to_list(Data),
-                <<"(\\d{4}).(\\d{2}).(\\d{2}).(\\S{0,10}|$)">>,
-                [{capture, all_but_first, list}]) of
-        {match, [Year, Mounth, Day, Description]} ->
-                Year ++ "." ++ Mounth ++ "." ++ Day ++ "." ++ Description;
-        nomatch -> "undefined"
+get_records(Path) ->
+    Data = binary:split(read_semver_file(Path), [<<"\n">>], [global, trim_all]),
+    case Data of
+        [VersionNumber, VersionDatetime, ServiceName] -> Data;
+        _ -> [<<"undefined">>, <<"undefined">>, <<"undefined">>]
     end.
 
 get_version_file(Filename) ->
@@ -111,8 +108,11 @@ format_ip(IP6) ->
 
 -spec handle(http_method(), cowboy_req:req()) -> cowboy_req:req().
 handle(<<"GET">>, Req) ->
+    [VersionNumber, VersionDatetime, ServiceName] = get_records(get_version_file(?VERSION_FILE)),
     Headers = #{<<"content-type">> => <<"text/plain">>,
-                <<"version">> => list_to_binary(find_calver(get_version_file(?VERSION_FILE)))},
+                <<"version_number">> => VersionNumber,
+                <<"version_datetime">> => VersionDatetime,
+                <<"service_name">> => ServiceName},
     case cowboy_req:has_body(Req) of
         true ->
             json_response({error, body_present, Headers}, Req);
